@@ -59,7 +59,6 @@ jobs:
         run: |
           Write-Host "Optimizing RDP performance..."
 
-          # Enable RDP bitmap caching
           New-Item `
             -Path "HKCU:\Software\Microsoft\Terminal Server Client" `
             -Force | Out-Null
@@ -70,7 +69,6 @@ jobs:
             -Type DWord `
             -Value 1
 
-          # Configure RDP transport policy
           New-Item `
             -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" `
             -Force | Out-Null
@@ -81,7 +79,6 @@ jobs:
             -Type DWord `
             -Value 1
 
-          # Reduce unnecessary desktop visual effects
           New-Item `
             -Path "HKCU:\Control Panel\Desktop" `
             -Force | Out-Null
@@ -96,7 +93,6 @@ jobs:
             -Name "MenuShowDelay" `
             -Value "0"
 
-          # Disable desktop wallpaper for the runner account
           New-Item `
             -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" `
             -Force | Out-Null
@@ -181,8 +177,6 @@ jobs:
 
           $diskNumber = $disk.DiskNumber
 
-          Write-Host "Disk number: $diskNumber"
-
           $diskInfo = Get-Disk `
             -Number $diskNumber
 
@@ -250,8 +244,6 @@ jobs:
           Start-Sleep -Seconds 3
 
           $diskNumber = $disk.DiskNumber
-
-          Write-Host "Disk number: $diskNumber"
 
           $diskInfo = Get-Disk `
             -Number $diskNumber
@@ -321,8 +313,6 @@ jobs:
 
           $diskNumber = $disk.DiskNumber
 
-          Write-Host "Disk number: $diskNumber"
-
           $diskInfo = Get-Disk `
             -Number $diskNumber
 
@@ -381,60 +371,66 @@ jobs:
       # ==========================================
       # CREATE RDP USER
       # ==========================================
-      - name: Create RDP User with Secure Password
+      - name: Create RDP User
         shell: powershell
         run: |
-          Add-Type -AssemblyName System.Security
+          $username = "RDP"
+          $password = "Scriddo@1"
 
-          $charSet = @{
-              Upper = [char[]](65..90)
-              Lower = [char[]](97..122)
-              Number = [char[]](48..57)
-              Special = (
-                  [char[]](33..47) +
-                  [char[]](58..64) +
-                  [char[]](91..96) +
-                  [char[]](123..126)
-              )
+          $existingUser = Get-LocalUser `
+            -Name $username `
+            -ErrorAction SilentlyContinue
+
+          if ($existingUser) {
+              Write-Host "RDP user already exists. Updating password..."
+
+              $securePass = ConvertTo-SecureString `
+                $password `
+                -AsPlainText `
+                -Force
+
+              Set-LocalUser `
+                -Name $username `
+                -Password $securePass
           }
+          else {
+              Write-Host "Creating RDP user..."
 
-          $rawPassword = @()
+              $securePass = ConvertTo-SecureString `
+                $password `
+                -AsPlainText `
+                -Force
 
-          $rawPassword += $charSet.Upper | Get-Random -Count 4
-          $rawPassword += $charSet.Lower | Get-Random -Count 4
-          $rawPassword += $charSet.Number | Get-Random -Count 4
-          $rawPassword += $charSet.Special | Get-Random -Count 4
-
-          $password = -join (
-              $rawPassword | Sort-Object { Get-Random }
-          )
-
-          $securePass = ConvertTo-SecureString `
-            $password `
-            -AsPlainText `
-            -Force
-
-          New-LocalUser `
-            -Name "RDP" `
-            -Password $securePass `
-            -AccountNeverExpires
+              New-LocalUser `
+                -Name $username `
+                -Password $securePass `
+                -AccountNeverExpires
+          }
 
           Add-LocalGroupMember `
             -Group "Administrators" `
-            -Member "RDP"
+            -Member $username `
+            -ErrorAction SilentlyContinue
 
           Add-LocalGroupMember `
             -Group "Remote Desktop Users" `
-            -Member "RDP"
+            -Member $username `
+            -ErrorAction SilentlyContinue
 
-          echo "RDP_CREDS=User: RDP | Password: $password" >> $env:GITHUB_ENV
-
-          if (-not (Get-LocalUser -Name "RDP")) {
+          if (-not (Get-LocalUser -Name $username -ErrorAction SilentlyContinue)) {
               Write-Error "User creation failed."
               exit 1
           }
 
-          Write-Host "RDP user created successfully."
+          echo "RDP_CREDS=User: RDP | Password: Scriddo@1" >> $env:GITHUB_ENV
+
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "RDP USER READY"
+          Write-Host "=========================================="
+          Write-Host "Username: RDP"
+          Write-Host "Password: Scriddo@1"
+          Write-Host "=========================================="
 
       # ==========================================
       # INSTALL TAILSCALE
@@ -489,6 +485,7 @@ jobs:
 
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
 
+          Write-Host ""
           Write-Host "Tailscale IP: $tsIP"
 
       # ==========================================
@@ -533,7 +530,7 @@ jobs:
 
           Write-Host "Address : $env:TAILSCALE_IP"
           Write-Host "Username: RDP"
-          Write-Host "Password: $(echo $env:RDP_CREDS)"
+          Write-Host "Password: Scriddo@1"
           Write-Host ""
           Write-Host "CPU     : $($cpu.Name)"
           Write-Host "RAM     : $ramGB GB"
@@ -556,10 +553,11 @@ jobs:
 
           Write-Host "Address : $env:TAILSCALE_IP"
           Write-Host "Username: RDP"
+          Write-Host "Password: Scriddo@1"
+          Write-Host ""
           Write-Host "E: 2 TB virtual"
           Write-Host "F: 512 GB virtual"
           Write-Host "G: 5 TB virtual"
-
           Write-Host "=========================================="
           Write-Host ""
 
