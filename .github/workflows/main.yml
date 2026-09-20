@@ -48,7 +48,7 @@ jobs:
           Write-Host "RDP configured successfully."
 
       # ==========================================
-      # CHECK AVAILABLE RAM
+      # CHECK RAM
       # ==========================================
       - name: Check RAM
         shell: powershell
@@ -60,17 +60,20 @@ jobs:
               2
           )
 
+          Write-Host ""
           Write-Host "=========================================="
-          Write-Host "PHYSICAL RAM"
+          Write-Host "RAM INFORMATION"
           Write-Host "=========================================="
-          Write-Host "RAM available: $ramGB GB"
+          Write-Host "Physical RAM available: $ramGB GB"
+          Write-Host "Requested RAM: 32 GB"
           Write-Host "=========================================="
 
           if ($ramGB -lt 32) {
-              Write-Host ""
-              Write-Host "NOTE:"
-              Write-Host "This GitHub runner does not have 32 GB RAM."
-              Write-Host "The workflow cannot increase physical RAM."
+              Write-Warning "This GitHub runner has less than 32 GB RAM."
+              Write-Warning "Physical RAM cannot be increased using this workflow."
+          }
+          else {
+              Write-Host "32 GB or more RAM is available."
           }
 
       # ==========================================
@@ -81,15 +84,13 @@ jobs:
         run: |
 
           $vhdPath = "C:\512GB-RDP-Disk.vhdx"
-          $driveLetter = "F"
 
           Write-Host "=========================================="
           Write-Host "CREATING 512 GB F: DRIVE"
           Write-Host "=========================================="
 
-          # Check F:
           $existingDrive = Get-Volume `
-            -DriveLetter $driveLetter `
+            -DriveLetter F `
             -ErrorAction SilentlyContinue
 
           if ($existingDrive) {
@@ -97,7 +98,6 @@ jobs:
               exit 1
           }
 
-          # Remove previous VHD if present
           if (Test-Path $vhdPath) {
               Dismount-VHD `
                 -Path $vhdPath `
@@ -108,16 +108,12 @@ jobs:
                 -Force
           }
 
-          # Create dynamic 512 GB VHDX
           New-VHD `
             -Path $vhdPath `
             -SizeBytes 512GB `
             -Dynamic `
             -ErrorAction Stop
 
-          Write-Host "512 GB VHDX created."
-
-          # Mount
           $disk = Mount-VHD `
             -Path $vhdPath `
             -Passthru `
@@ -129,7 +125,6 @@ jobs:
 
           Write-Host "Disk number: $diskNumber"
 
-          # Initialize
           $diskInfo = Get-Disk `
             -Number $diskNumber
 
@@ -140,14 +135,12 @@ jobs:
                 -ErrorAction Stop
           }
 
-          # Partition
           $partition = New-Partition `
             -DiskNumber $diskNumber `
             -UseMaximumSize `
             -DriveLetter F `
             -ErrorAction Stop
 
-          # Format
           Format-Volume `
             -Partition $partition `
             -FileSystem NTFS `
@@ -155,7 +148,7 @@ jobs:
             -Confirm:$false `
             -ErrorAction Stop
 
-          Write-Host "F: successfully created."
+          Write-Host "F: created successfully."
 
       # ==========================================
       # CREATE 2 TB E: DRIVE
@@ -165,15 +158,13 @@ jobs:
         run: |
 
           $vhdPath = "C:\2TB-RDP-Disk.vhdx"
-          $driveLetter = "E"
 
           Write-Host "=========================================="
           Write-Host "CREATING 2 TB E: DRIVE"
           Write-Host "=========================================="
 
-          # Check E:
           $existingDrive = Get-Volume `
-            -DriveLetter $driveLetter `
+            -DriveLetter E `
             -ErrorAction SilentlyContinue
 
           if ($existingDrive) {
@@ -181,7 +172,6 @@ jobs:
               exit 1
           }
 
-          # Remove previous VHD if present
           if (Test-Path $vhdPath) {
               Dismount-VHD `
                 -Path $vhdPath `
@@ -192,16 +182,12 @@ jobs:
                 -Force
           }
 
-          # Create dynamic 2 TB VHDX
           New-VHD `
             -Path $vhdPath `
             -SizeBytes 2TB `
             -Dynamic `
             -ErrorAction Stop
 
-          Write-Host "2 TB VHDX created."
-
-          # Mount
           $disk = Mount-VHD `
             -Path $vhdPath `
             -Passthru `
@@ -213,7 +199,6 @@ jobs:
 
           Write-Host "Disk number: $diskNumber"
 
-          # Initialize
           $diskInfo = Get-Disk `
             -Number $diskNumber
 
@@ -224,14 +209,12 @@ jobs:
                 -ErrorAction Stop
           }
 
-          # Partition
           $partition = New-Partition `
             -DiskNumber $diskNumber `
             -UseMaximumSize `
             -DriveLetter E `
             -ErrorAction Stop
 
-          # Format
           Format-Volume `
             -Partition $partition `
             -FileSystem NTFS `
@@ -239,10 +222,10 @@ jobs:
             -Confirm:$false `
             -ErrorAction Stop
 
-          Write-Host "E: successfully created."
+          Write-Host "E: created successfully."
 
       # ==========================================
-      # STORAGE CHECK
+      # VERIFY STORAGE
       # ==========================================
       - name: Verify Storage
         shell: powershell
@@ -281,9 +264,9 @@ jobs:
           Add-Type -AssemblyName System.Security
 
           $charSet = @{
-              Upper   = [char[]](65..90)
-              Lower   = [char[]](97..122)
-              Number  = [char[]](48..57)
+              Upper = [char[]](65..90)
+              Lower = [char[]](97..122)
+              Number = [char[]](48..57)
               Special = (
                   [char[]](33..47) +
                   [char[]](58..64) +
@@ -336,7 +319,7 @@ jobs:
               exit 1
           }
 
-          Write-Host "RDP user created."
+          Write-Host "RDP user created successfully."
 
       # ==========================================
       # INSTALL TAILSCALE
@@ -396,52 +379,58 @@ jobs:
           Write-Host "Tailscale IP: $tsIP"
 
       # ==========================================
-      # TEST RDP
+      # VERIFY RDP
       # ==========================================
       - name: Verify RDP Accessibility
         shell: powershell
         run: |
 
-          Write-Host "Testing RDP..."
+          Write-Host "Testing RDP connection..."
 
           $testResult = Test-NetConnection `
             -ComputerName $env:TAILSCALE_IP `
             -Port 3389
 
           if (-not $testResult.TcpTestSucceeded) {
-              Write-Error "RDP port 3389 is not reachable."
+              Write-Error "RDP connection failed."
               exit 1
           }
 
-          Write-Host "RDP connectivity successful."
+          Write-Host "TCP connectivity successful."
 
       # ==========================================
-      # FINAL INFORMATION
+      # FINAL SYSTEM INFORMATION
       # ==========================================
       - name: Display System Information
         shell: powershell
         run: |
 
-          $ram = Get-CimInstance Win32_ComputerSystem
+          $system = Get-CimInstance Win32_ComputerSystem
 
           $ramGB = [math]::Round(
-              $ram.TotalPhysicalMemory / 1GB,
+              $system.TotalPhysicalMemory / 1GB,
               2
           )
+
+          $cpu = Get-CimInstance Win32_Processor |
+            Select-Object -First 1
 
           Write-Host ""
           Write-Host "=========================================="
           Write-Host "             RDP INFORMATION"
           Write-Host "=========================================="
+
           Write-Host "Address : $env:TAILSCALE_IP"
           Write-Host "Username: RDP"
           Write-Host "Password: $(echo $env:RDP_CREDS)"
+
           Write-Host ""
+          Write-Host "CPU     : $($cpu.Name)"
           Write-Host "RAM     : $ramGB GB"
           Write-Host "F:      : 512 GB virtual"
           Write-Host "E:      : 2 TB virtual"
+
           Write-Host "=========================================="
-          Write-Host ""
 
       # ==========================================
       # KEEP RDP ALIVE
@@ -452,12 +441,14 @@ jobs:
 
           Write-Host ""
           Write-Host "=========================================="
-          Write-Host "             RDP ACTIVE"
+          Write-Host "              RDP ACTIVE"
           Write-Host "=========================================="
+
           Write-Host "Address : $env:TAILSCALE_IP"
           Write-Host "Username: RDP"
           Write-Host "Storage : F: 512 GB virtual"
           Write-Host "Storage : E: 2 TB virtual"
+
           Write-Host "=========================================="
           Write-Host ""
 
