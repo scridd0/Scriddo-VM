@@ -48,7 +48,33 @@ jobs:
           Write-Host "RDP configured successfully."
 
       # ==========================================
-      # CREATE 512 GB VIRTUAL DISK
+      # CHECK AVAILABLE RAM
+      # ==========================================
+      - name: Check RAM
+        shell: powershell
+        run: |
+          $computerSystem = Get-CimInstance Win32_ComputerSystem
+
+          $ramGB = [math]::Round(
+              $computerSystem.TotalPhysicalMemory / 1GB,
+              2
+          )
+
+          Write-Host "=========================================="
+          Write-Host "PHYSICAL RAM"
+          Write-Host "=========================================="
+          Write-Host "RAM available: $ramGB GB"
+          Write-Host "=========================================="
+
+          if ($ramGB -lt 32) {
+              Write-Host ""
+              Write-Host "NOTE:"
+              Write-Host "This GitHub runner does not have 32 GB RAM."
+              Write-Host "The workflow cannot increase physical RAM."
+          }
+
+      # ==========================================
+      # CREATE 512 GB F: DRIVE
       # ==========================================
       - name: Create 512GB F Drive
         shell: powershell
@@ -58,22 +84,28 @@ jobs:
           $driveLetter = "F"
 
           Write-Host "=========================================="
-          Write-Host "Creating 512 GB dynamic virtual disk"
+          Write-Host "CREATING 512 GB F: DRIVE"
           Write-Host "=========================================="
 
-          # Check whether F: already exists
-          $existingDrive = Get-Volume -DriveLetter $driveLetter -ErrorAction SilentlyContinue
+          # Check F:
+          $existingDrive = Get-Volume `
+            -DriveLetter $driveLetter `
+            -ErrorAction SilentlyContinue
 
           if ($existingDrive) {
-              Write-Error "Drive F: is already in use. Cannot create the virtual drive."
+              Write-Error "F: is already in use."
               exit 1
           }
 
-          # Remove an old VHDX if one exists
+          # Remove previous VHD if present
           if (Test-Path $vhdPath) {
-              Write-Host "Removing old VHDX..."
-              Dismount-VHD -Path $vhdPath -ErrorAction SilentlyContinue
-              Remove-Item $vhdPath -Force
+              Dismount-VHD `
+                -Path $vhdPath `
+                -ErrorAction SilentlyContinue
+
+              Remove-Item `
+                $vhdPath `
+                -Force
           }
 
           # Create dynamic 512 GB VHDX
@@ -85,9 +117,7 @@ jobs:
 
           Write-Host "512 GB VHDX created."
 
-          # Mount VHD
-          Write-Host "Mounting virtual disk..."
-
+          # Mount
           $disk = Mount-VHD `
             -Path $vhdPath `
             -Passthru `
@@ -97,12 +127,12 @@ jobs:
 
           $diskNumber = $disk.DiskNumber
 
-          Write-Host "Virtual disk number: $diskNumber"
+          Write-Host "Disk number: $diskNumber"
 
-          # Make sure Windows sees the disk
-          $diskInfo = Get-Disk -Number $diskNumber
+          # Initialize
+          $diskInfo = Get-Disk `
+            -Number $diskNumber
 
-          # Initialize disk
           if ($diskInfo.PartitionStyle -eq "RAW") {
               Initialize-Disk `
                 -Number $diskNumber `
@@ -110,20 +140,14 @@ jobs:
                 -ErrorAction Stop
           }
 
-          Write-Host "Disk initialized."
-
-          # Create partition using F:
-          Write-Host "Creating F: partition..."
-
+          # Partition
           $partition = New-Partition `
             -DiskNumber $diskNumber `
             -UseMaximumSize `
-            -DriveLetter $driveLetter `
+            -DriveLetter F `
             -ErrorAction Stop
 
-          # Format partition
-          Write-Host "Formatting F: as NTFS..."
-
+          # Format
           Format-Volume `
             -Partition $partition `
             -FileSystem NTFS `
@@ -131,25 +155,121 @@ jobs:
             -Confirm:$false `
             -ErrorAction Stop
 
-          Start-Sleep -Seconds 2
+          Write-Host "F: successfully created."
+
+      # ==========================================
+      # CREATE 2 TB E: DRIVE
+      # ==========================================
+      - name: Create 2TB E Drive
+        shell: powershell
+        run: |
+
+          $vhdPath = "C:\2TB-RDP-Disk.vhdx"
+          $driveLetter = "E"
+
+          Write-Host "=========================================="
+          Write-Host "CREATING 2 TB E: DRIVE"
+          Write-Host "=========================================="
+
+          # Check E:
+          $existingDrive = Get-Volume `
+            -DriveLetter $driveLetter `
+            -ErrorAction SilentlyContinue
+
+          if ($existingDrive) {
+              Write-Error "E: is already in use."
+              exit 1
+          }
+
+          # Remove previous VHD if present
+          if (Test-Path $vhdPath) {
+              Dismount-VHD `
+                -Path $vhdPath `
+                -ErrorAction SilentlyContinue
+
+              Remove-Item `
+                $vhdPath `
+                -Force
+          }
+
+          # Create dynamic 2 TB VHDX
+          New-VHD `
+            -Path $vhdPath `
+            -SizeBytes 2TB `
+            -Dynamic `
+            -ErrorAction Stop
+
+          Write-Host "2 TB VHDX created."
+
+          # Mount
+          $disk = Mount-VHD `
+            -Path $vhdPath `
+            -Passthru `
+            -ErrorAction Stop
+
+          Start-Sleep -Seconds 3
+
+          $diskNumber = $disk.DiskNumber
+
+          Write-Host "Disk number: $diskNumber"
+
+          # Initialize
+          $diskInfo = Get-Disk `
+            -Number $diskNumber
+
+          if ($diskInfo.PartitionStyle -eq "RAW") {
+              Initialize-Disk `
+                -Number $diskNumber `
+                -PartitionStyle GPT `
+                -ErrorAction Stop
+          }
+
+          # Partition
+          $partition = New-Partition `
+            -DiskNumber $diskNumber `
+            -UseMaximumSize `
+            -DriveLetter E `
+            -ErrorAction Stop
+
+          # Format
+          Format-Volume `
+            -Partition $partition `
+            -FileSystem NTFS `
+            -NewFileSystemLabel "RDP-2TB" `
+            -Confirm:$false `
+            -ErrorAction Stop
+
+          Write-Host "E: successfully created."
+
+      # ==========================================
+      # STORAGE CHECK
+      # ==========================================
+      - name: Verify Storage
+        shell: powershell
+        run: |
 
           Write-Host ""
           Write-Host "=========================================="
-          Write-Host "512 GB DRIVE CREATED SUCCESSFULLY"
-          Write-Host "Drive: F:"
+          Write-Host "STORAGE INFORMATION"
           Write-Host "=========================================="
 
-          Get-Volume -DriveLetter F |
+          Get-Volume |
+            Where-Object DriveLetter |
             Select-Object `
               DriveLetter,
               FileSystem,
               FileSystemLabel,
-              @{Name="SizeGB";Expression={[math]::Round($_.Size / 1GB, 2)}},
-              @{Name="FreeGB";Expression={[math]::Round($_.SizeRemaining / 1GB, 2)}} |
+              @{Name="SizeGB";Expression={
+                  [math]::Round($_.Size / 1GB, 2)
+              }},
+              @{Name="FreeGB";Expression={
+                  [math]::Round($_.SizeRemaining / 1GB, 2)
+              }} |
             Format-Table -AutoSize
 
-          # Make drive letter available to later steps
-          echo "VIRTUAL_DRIVE=F:" >> $env:GITHUB_ENV
+          Write-Host ""
+          Write-Host "F: = 512 GB virtual maximum"
+          Write-Host "E: = 2 TB virtual maximum"
 
       # ==========================================
       # CREATE RDP USER
@@ -157,6 +277,7 @@ jobs:
       - name: Create RDP User with Secure Password
         shell: powershell
         run: |
+
           Add-Type -AssemblyName System.Security
 
           $charSet = @{
@@ -215,7 +336,7 @@ jobs:
               exit 1
           }
 
-          Write-Host "RDP user created successfully."
+          Write-Host "RDP user created."
 
       # ==========================================
       # INSTALL TAILSCALE
@@ -223,6 +344,7 @@ jobs:
       - name: Install Tailscale
         shell: powershell
         run: |
+
           $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
           $installerPath = "$env:TEMP\tailscale.msi"
 
@@ -265,7 +387,7 @@ jobs:
           }
 
           if (-not $tsIP) {
-              Write-Error "Tailscale IP not assigned. Exiting."
+              Write-Error "Tailscale IP not assigned."
               exit 1
           }
 
@@ -274,50 +396,52 @@ jobs:
           Write-Host "Tailscale IP: $tsIP"
 
       # ==========================================
-      # VERIFY RDP
+      # TEST RDP
       # ==========================================
       - name: Verify RDP Accessibility
         shell: powershell
         run: |
 
-          Write-Host "Testing RDP connection..."
+          Write-Host "Testing RDP..."
 
           $testResult = Test-NetConnection `
             -ComputerName $env:TAILSCALE_IP `
             -Port 3389
 
           if (-not $testResult.TcpTestSucceeded) {
-              Write-Error "TCP connection to RDP port 3389 failed"
+              Write-Error "RDP port 3389 is not reachable."
               exit 1
           }
 
-          Write-Host "TCP connectivity successful!"
+          Write-Host "RDP connectivity successful."
 
       # ==========================================
-      # SHOW STORAGE
+      # FINAL INFORMATION
       # ==========================================
-      - name: Verify 512GB F Drive
+      - name: Display System Information
         shell: powershell
         run: |
 
-          Write-Host ""
-          Write-Host "=========================================="
-          Write-Host "STORAGE INFORMATION"
-          Write-Host "=========================================="
+          $ram = Get-CimInstance Win32_ComputerSystem
 
-          Get-Volume |
-            Where-Object DriveLetter |
-            Select-Object `
-              DriveLetter,
-              FileSystem,
-              FileSystemLabel,
-              @{Name="SizeGB";Expression={[math]::Round($_.Size / 1GB, 2)}},
-              @{Name="FreeGB";Expression={[math]::Round($_.SizeRemaining / 1GB, 2)}} |
-            Format-Table -AutoSize
+          $ramGB = [math]::Round(
+              $ram.TotalPhysicalMemory / 1GB,
+              2
+          )
 
           Write-Host ""
-          Write-Host "Virtual storage drive: F:"
-          Write-Host "Maximum virtual capacity: 512 GB"
+          Write-Host "=========================================="
+          Write-Host "             RDP INFORMATION"
+          Write-Host "=========================================="
+          Write-Host "Address : $env:TAILSCALE_IP"
+          Write-Host "Username: RDP"
+          Write-Host "Password: $(echo $env:RDP_CREDS)"
+          Write-Host ""
+          Write-Host "RAM     : $ramGB GB"
+          Write-Host "F:      : 512 GB virtual"
+          Write-Host "E:      : 2 TB virtual"
+          Write-Host "=========================================="
+          Write-Host ""
 
       # ==========================================
       # KEEP RDP ALIVE
@@ -328,19 +452,18 @@ jobs:
 
           Write-Host ""
           Write-Host "=========================================="
-          Write-Host "        RDP ACCESS"
+          Write-Host "             RDP ACTIVE"
           Write-Host "=========================================="
-          Write-Host "Address: $env:TAILSCALE_IP"
+          Write-Host "Address : $env:TAILSCALE_IP"
           Write-Host "Username: RDP"
-          Write-Host "Password: $(echo $env:RDP_CREDS)"
-          Write-Host "Storage: F:"
-          Write-Host "Capacity: 512 GB virtual"
+          Write-Host "Storage : F: 512 GB virtual"
+          Write-Host "Storage : E: 2 TB virtual"
           Write-Host "=========================================="
           Write-Host ""
 
           while ($true) {
 
-              Write-Host "[$(Get-Date)] RDP Active - F: drive available"
+              Write-Host "[$(Get-Date)] RDP Active"
 
               Start-Sleep -Seconds 300
           }
