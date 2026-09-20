@@ -9,53 +9,153 @@ jobs:
     timeout-minutes: 3600
 
     steps:
+
+      # ==========================================
+      # CONFIGURE RDP
+      # ==========================================
       - name: Configure Core RDP Settings
+        shell: powershell
         run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
-                             -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty `
+            -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
+            -Name "fDenyTSConnections" `
+            -Value 0 `
+            -Force
 
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                             -Name "UserAuthentication" -Value 0 -Force
+          Set-ItemProperty `
+            -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
+            -Name "UserAuthentication" `
+            -Value 0 `
+            -Force
 
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                             -Name "SecurityLayer" -Value 0 -Force
+          Set-ItemProperty `
+            -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
+            -Name "SecurityLayer" `
+            -Value 0 `
+            -Force
 
           netsh advfirewall firewall delete rule name="RDP-Tailscale"
 
-          netsh advfirewall firewall add rule name="RDP-Tailscale" `
-            dir=in action=allow protocol=TCP localport=3389
+          netsh advfirewall firewall add rule `
+            name="RDP-Tailscale" `
+            dir=in `
+            action=allow `
+            protocol=TCP `
+            localport=3389
 
           Restart-Service -Name TermService -Force
 
+          Write-Host "RDP configured successfully."
+
       # ==========================================
-      # CREATE 512 GB DYNAMIC VIRTUAL DISK
+      # CREATE 512 GB VIRTUAL DISK
       # ==========================================
-      - name: Create 512GB Virtual Drive
+      - name: Create 512GB F Drive
+        shell: powershell
         run: |
+
           $vhdPath = "C:\512GB-RDP-Disk.vhdx"
+          $driveLetter = "F"
 
-          Write-Host "Creating dynamic 512 GB VHDX..."
+          Write-Host "=========================================="
+          Write-Host "Creating 512 GB dynamic virtual disk"
+          Write-Host "=========================================="
 
+          # Check whether F: already exists
+          $existingDrive = Get-Volume -DriveLetter $driveLetter -ErrorAction SilentlyContinue
+
+          if ($existingDrive) {
+              Write-Error "Drive F: is already in use. Cannot create the virtual drive."
+              exit 1
+          }
+
+          # Remove an old VHDX if one exists
+          if (Test-Path $vhdPath) {
+              Write-Host "Removing old VHDX..."
+              Dismount-VHD -Path $vhdPath -ErrorAction SilentlyContinue
+              Remove-Item $vhdPath -Force
+          }
+
+          # Create dynamic 512 GB VHDX
           New-VHD `
             -Path $vhdPath `
             -SizeBytes 512GB `
-            -Dynamic
+            -Dynamic `
+            -ErrorAction Stop
 
+          Write-Host "512 GB VHDX created."
+
+          # Mount VHD
           Write-Host "Mounting virtual disk..."
 
-          Mount-VHD -Path $vhdPath -Passthru | Get-Disk |
-              Initialize-Disk -PartitionStyle GPT -PassThru |
-              New-Partition -UseMaximumSize -DriveLetter D |
-              Format-Volume -FileSystem NTFS -NewFileSystemLabel "RDP-512GB" -Confirm:$false
+          $disk = Mount-VHD `
+            -Path $vhdPath `
+            -Passthru `
+            -ErrorAction Stop
 
-          Write-Host "Virtual D: drive created."
+          Start-Sleep -Seconds 3
 
-          Get-Volume -DriveLetter D |
-            Select-Object DriveLetter, FileSystemLabel,
+          $diskNumber = $disk.DiskNumber
+
+          Write-Host "Virtual disk number: $diskNumber"
+
+          # Make sure Windows sees the disk
+          $diskInfo = Get-Disk -Number $diskNumber
+
+          # Initialize disk
+          if ($diskInfo.PartitionStyle -eq "RAW") {
+              Initialize-Disk `
+                -Number $diskNumber `
+                -PartitionStyle GPT `
+                -ErrorAction Stop
+          }
+
+          Write-Host "Disk initialized."
+
+          # Create partition using F:
+          Write-Host "Creating F: partition..."
+
+          $partition = New-Partition `
+            -DiskNumber $diskNumber `
+            -UseMaximumSize `
+            -DriveLetter $driveLetter `
+            -ErrorAction Stop
+
+          # Format partition
+          Write-Host "Formatting F: as NTFS..."
+
+          Format-Volume `
+            -Partition $partition `
+            -FileSystem NTFS `
+            -NewFileSystemLabel "RDP-512GB" `
+            -Confirm:$false `
+            -ErrorAction Stop
+
+          Start-Sleep -Seconds 2
+
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "512 GB DRIVE CREATED SUCCESSFULLY"
+          Write-Host "Drive: F:"
+          Write-Host "=========================================="
+
+          Get-Volume -DriveLetter F |
+            Select-Object `
+              DriveLetter,
+              FileSystem,
+              FileSystemLabel,
               @{Name="SizeGB";Expression={[math]::Round($_.Size / 1GB, 2)}},
-              @{Name="FreeGB";Expression={[math]::Round($_.SizeRemaining / 1GB, 2)}}
+              @{Name="FreeGB";Expression={[math]::Round($_.SizeRemaining / 1GB, 2)}} |
+            Format-Table -AutoSize
 
+          # Make drive letter available to later steps
+          echo "VIRTUAL_DRIVE=F:" >> $env:GITHUB_ENV
+
+      # ==========================================
+      # CREATE RDP USER
+      # ==========================================
       - name: Create RDP User with Secure Password
+        shell: powershell
         run: |
           Add-Type -AssemblyName System.Security
 
@@ -63,26 +163,50 @@ jobs:
               Upper   = [char[]](65..90)
               Lower   = [char[]](97..122)
               Number  = [char[]](48..57)
-              Special = ([char[]](33..47) + [char[]](58..64) +
-                         [char[]](91..96) + [char[]](123..126))
+              Special = (
+                  [char[]](33..47) +
+                  [char[]](58..64) +
+                  [char[]](91..96) +
+                  [char[]](123..126)
+              )
           }
 
           $rawPassword = @()
-          $rawPassword += $charSet.Upper | Get-Random -Count 4
-          $rawPassword += $charSet.Lower | Get-Random -Count 4
-          $rawPassword += $charSet.Number | Get-Random -Count 4
-          $rawPassword += $charSet.Special | Get-Random -Count 4
 
-          $password = -join ($rawPassword | Sort-Object { Get-Random })
+          $rawPassword += $charSet.Upper |
+              Get-Random -Count 4
 
-          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+          $rawPassword += $charSet.Lower |
+              Get-Random -Count 4
 
-          New-LocalUser -Name "RDP" `
-                        -Password $securePass `
-                        -AccountNeverExpires
+          $rawPassword += $charSet.Number |
+              Get-Random -Count 4
 
-          Add-LocalGroupMember -Group "Administrators" -Member "RDP"
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
+          $rawPassword += $charSet.Special |
+              Get-Random -Count 4
+
+          $password = -join (
+              $rawPassword |
+              Sort-Object { Get-Random }
+          )
+
+          $securePass = ConvertTo-SecureString `
+            $password `
+            -AsPlainText `
+            -Force
+
+          New-LocalUser `
+            -Name "RDP" `
+            -Password $securePass `
+            -AccountNeverExpires
+
+          Add-LocalGroupMember `
+            -Group "Administrators" `
+            -Member "RDP"
+
+          Add-LocalGroupMember `
+            -Group "Remote Desktop Users" `
+            -Member "RDP"
 
           echo "RDP_CREDS=User: RDP | Password: $password" >> $env:GITHUB_ENV
 
@@ -91,21 +215,39 @@ jobs:
               exit 1
           }
 
+          Write-Host "RDP user created successfully."
+
+      # ==========================================
+      # INSTALL TAILSCALE
+      # ==========================================
       - name: Install Tailscale
+        shell: powershell
         run: |
           $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
           $installerPath = "$env:TEMP\tailscale.msi"
 
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
+          Invoke-WebRequest `
+            -Uri $tsUrl `
+            -OutFile $installerPath
 
-          Start-Process msiexec.exe `
+          Start-Process `
+            msiexec.exe `
             -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" `
             -Wait
 
-          Remove-Item $installerPath -Force
+          Remove-Item `
+            $installerPath `
+            -Force
 
+          Write-Host "Tailscale installed."
+
+      # ==========================================
+      # CONNECT TAILSCALE
+      # ==========================================
       - name: Establish Tailscale Connection
+        shell: powershell
         run: |
+
           & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
             --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} `
             --hostname=gh-runner-$env:GITHUB_RUN_ID
@@ -114,8 +256,11 @@ jobs:
           $retries = 0
 
           while (-not $tsIP -and $retries -lt 10) {
+
               $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+
               Start-Sleep -Seconds 5
+
               $retries++
           }
 
@@ -126,9 +271,16 @@ jobs:
 
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
 
+          Write-Host "Tailscale IP: $tsIP"
+
+      # ==========================================
+      # VERIFY RDP
+      # ==========================================
       - name: Verify RDP Accessibility
+        shell: powershell
         run: |
-          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
+
+          Write-Host "Testing RDP connection..."
 
           $testResult = Test-NetConnection `
             -ComputerName $env:TAILSCALE_IP `
@@ -141,27 +293,54 @@ jobs:
 
           Write-Host "TCP connectivity successful!"
 
-      - name: Show Storage Information
+      # ==========================================
+      # SHOW STORAGE
+      # ==========================================
+      - name: Verify 512GB F Drive
+        shell: powershell
         run: |
-          Write-Host "===== STORAGE ====="
+
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "STORAGE INFORMATION"
+          Write-Host "=========================================="
 
           Get-Volume |
-            Select-Object DriveLetter, FileSystemLabel,
+            Where-Object DriveLetter |
+            Select-Object `
+              DriveLetter,
+              FileSystem,
+              FileSystemLabel,
               @{Name="SizeGB";Expression={[math]::Round($_.Size / 1GB, 2)}},
               @{Name="FreeGB";Expression={[math]::Round($_.SizeRemaining / 1GB, 2)}} |
             Format-Table -AutoSize
 
-          Write-Host "==================="
+          Write-Host ""
+          Write-Host "Virtual storage drive: F:"
+          Write-Host "Maximum virtual capacity: 512 GB"
 
+      # ==========================================
+      # KEEP RDP ALIVE
+      # ==========================================
       - name: Maintain Connection
+        shell: powershell
         run: |
-          Write-Host "`n=== RDP ACCESS ==="
+
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "        RDP ACCESS"
+          Write-Host "=========================================="
           Write-Host "Address: $env:TAILSCALE_IP"
           Write-Host "Username: RDP"
           Write-Host "Password: $(echo $env:RDP_CREDS)"
-          Write-Host "==================`n"
+          Write-Host "Storage: F:"
+          Write-Host "Capacity: 512 GB virtual"
+          Write-Host "=========================================="
+          Write-Host ""
 
           while ($true) {
-              Write-Host "[$(Get-Date)] RDP Active - 512GB virtual disk available as D:"
+
+              Write-Host "[$(Get-Date)] RDP Active - F: drive available"
+
               Start-Sleep -Seconds 300
           }
