@@ -1,4 +1,4 @@
-name: RDP
+name: Smooth RDP
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ jobs:
       # ==========================================
       # CONFIGURE RDP
       # ==========================================
-      - name: Configure Core RDP Settings
+      - name: Configure RDP
         shell: powershell
         run: |
           Write-Host "Configuring Remote Desktop..."
@@ -45,43 +45,57 @@ jobs:
             protocol=TCP `
             localport=3389
 
-          Restart-Service `
-            -Name TermService `
-            -Force
-
-          Write-Host "RDP configured successfully."
+          Write-Host "RDP configured."
 
       # ==========================================
-      # RDP PERFORMANCE OPTIMIZATION
+      # MAXIMUM PRACTICAL WINDOWS PERFORMANCE
       # ==========================================
-      - name: Optimize RDP Performance
+      - name: Optimize Windows Performance
         shell: powershell
         run: |
-          Write-Host "Optimizing RDP performance..."
+
+          Write-Host "Applying performance optimizations..."
+
+          # ------------------------------------------
+          # Visual effects - performance mode
+          # ------------------------------------------
 
           New-Item `
-            -Path "HKCU:\Software\Microsoft\Terminal Server Client" `
+            -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" `
             -Force | Out-Null
 
           Set-ItemProperty `
-            -Path "HKCU:\Software\Microsoft\Terminal Server Client" `
-            -Name "BitmapCachePersistEnable" `
+            -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" `
+            -Name "VisualFXSetting" `
             -Type DWord `
-            -Value 1
+            -Value 2
+
+          # ------------------------------------------
+          # Disable transparency
+          # ------------------------------------------
 
           New-Item `
-            -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" `
+            -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" `
             -Force | Out-Null
 
           Set-ItemProperty `
-            -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" `
-            -Name "SelectTransport" `
+            -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" `
+            -Name "EnableTransparency" `
             -Type DWord `
-            -Value 1
+            -Value 0
+
+          # ------------------------------------------
+          # Disable animations
+          # ------------------------------------------
 
           New-Item `
-            -Path "HKCU:\Control Panel\Desktop" `
+            -Path "HKCU:\Control Panel\Desktop\WindowMetrics" `
             -Force | Out-Null
+
+          Set-ItemProperty `
+            -Path "HKCU:\Control Panel\Desktop\WindowMetrics" `
+            -Name "MinAnimate" `
+            -Value "0"
 
           Set-ItemProperty `
             -Path "HKCU:\Control Panel\Desktop" `
@@ -93,45 +107,159 @@ jobs:
             -Name "MenuShowDelay" `
             -Value "0"
 
+          # ------------------------------------------
+          # Disable wallpaper
+          # ------------------------------------------
+
+          Set-ItemProperty `
+            -Path "HKCU:\Control Panel\Desktop" `
+            -Name "Wallpaper" `
+            -Value ""
+
+          # ------------------------------------------
+          # Disable unnecessary Explorer effects
+          # ------------------------------------------
+
           New-Item `
-            -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" `
+            -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
             -Force | Out-Null
 
           Set-ItemProperty `
-            -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" `
-            -Name "NoActiveDesktop" `
+            -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+            -Name "ListviewAlphaSelect" `
+            -Type DWord `
+            -Value 0
+
+          Set-ItemProperty `
+            -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+            -Name "ListviewShadow" `
+            -Type DWord `
+            -Value 0
+
+          Set-ItemProperty `
+            -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+            -Name "TaskbarAnimations" `
+            -Type DWord `
+            -Value 0
+
+          # ------------------------------------------
+          # RDP bitmap caching
+          # ------------------------------------------
+
+          New-Item `
+            -Path "HKCU:\Software\Microsoft\Terminal Server Client" `
+            -Force | Out-Null
+
+          Set-ItemProperty `
+            -Path "HKCU:\Software\Microsoft\Terminal Server Client" `
+            -Name "BitmapCachePersistEnable" `
             -Type DWord `
             -Value 1
 
-          Write-Host "RDP performance settings applied."
+          # ------------------------------------------
+          # RDP transport policy
+          # ------------------------------------------
+
+          New-Item `
+            -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" `
+            -Force | Out-Null
+
+          Set-ItemProperty `
+            -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" `
+            -Name "SelectTransport" `
+            -Type DWord `
+            -Value 1
+
+          Write-Host "Windows performance optimization complete."
 
       # ==========================================
-      # CHECK RAM
+      # POWER PLAN
       # ==========================================
-      - name: Check RAM
+      - name: Configure Performance Power Plan
         shell: powershell
         run: |
-          $computerSystem = Get-CimInstance Win32_ComputerSystem
+
+          Write-Host "Configuring power settings..."
+
+          powercfg /setactive SCHEME_MIN
+
+          Write-Host "High performance power plan selected."
+
+      # ==========================================
+      # DISABLE UNNECESSARY SERVICES
+      # ==========================================
+      - name: Reduce Background Services
+        shell: powershell
+        run: |
+
+          Write-Host "Reducing unnecessary background activity..."
+
+          $services = @(
+              "DiagTrack",
+              "MapsBroker",
+              "Fax",
+              "RetailDemo"
+          )
+
+          foreach ($service in $services) {
+
+              $svc = Get-Service `
+                -Name $service `
+                -ErrorAction SilentlyContinue
+
+              if ($svc) {
+
+                  try {
+                      Stop-Service `
+                        -Name $service `
+                        -Force `
+                        -ErrorAction SilentlyContinue
+                  }
+                  catch {}
+
+                  try {
+                      Set-Service `
+                        -Name $service `
+                        -StartupType Disabled `
+                        -ErrorAction SilentlyContinue
+                  }
+                  catch {}
+              }
+          }
+
+          Write-Host "Background service optimization complete."
+
+      # ==========================================
+      # CHECK CPU + RAM
+      # ==========================================
+      - name: Check Hardware
+        shell: powershell
+        run: |
+
+          $computer = Get-CimInstance Win32_ComputerSystem
 
           $ramGB = [math]::Round(
-              $computerSystem.TotalPhysicalMemory / 1GB,
+              $computer.TotalPhysicalMemory / 1GB,
               2
           )
 
+          $cpu = Get-CimInstance Win32_Processor |
+            Select-Object -First 1
+
           Write-Host ""
           Write-Host "=========================================="
-          Write-Host "RAM INFORMATION"
+          Write-Host "RUNNER HARDWARE"
           Write-Host "=========================================="
-          Write-Host "Physical RAM: $ramGB GB"
-          Write-Host "Requested RAM: 32 GB"
+
+          Write-Host "CPU: $($cpu.Name)"
+          Write-Host "Logical processors: $($cpu.NumberOfLogicalProcessors)"
+          Write-Host "RAM: $ramGB GB"
+
           Write-Host "=========================================="
 
           if ($ramGB -lt 32) {
-              Write-Warning "This runner has less than 32 GB physical RAM."
-              Write-Warning "The workflow cannot increase physical RAM."
-          }
-          else {
-              Write-Host "32 GB or more RAM is available."
+              Write-Warning "Runner has less than 32 GB RAM."
+              Write-Warning "RAM cannot be increased by this workflow."
           }
 
       # ==========================================
@@ -140,12 +268,8 @@ jobs:
       - name: Create 512GB F Drive
         shell: powershell
         run: |
-          $vhdPath = "C:\512GB-RDP-Disk.vhdx"
 
-          Write-Host ""
-          Write-Host "=========================================="
-          Write-Host "CREATING 512 GB F: DRIVE"
-          Write-Host "=========================================="
+          $vhdPath = "C:\512GB-RDP-Disk.vhdx"
 
           if (Get-Volume -DriveLetter F -ErrorAction SilentlyContinue) {
               Write-Error "F: is already in use."
@@ -153,13 +277,7 @@ jobs:
           }
 
           if (Test-Path $vhdPath) {
-              Dismount-VHD `
-                -Path $vhdPath `
-                -ErrorAction SilentlyContinue
-
-              Remove-Item `
-                $vhdPath `
-                -Force
+              Remove-Item $vhdPath -Force
           }
 
           New-VHD `
@@ -173,34 +291,27 @@ jobs:
             -Passthru `
             -ErrorAction Stop
 
-          Start-Sleep -Seconds 3
+          Start-Sleep -Seconds 2
 
           $diskNumber = $disk.DiskNumber
 
-          $diskInfo = Get-Disk `
-            -Number $diskNumber
-
-          if ($diskInfo.PartitionStyle -eq "RAW") {
-              Initialize-Disk `
-                -Number $diskNumber `
-                -PartitionStyle GPT `
-                -ErrorAction Stop
-          }
+          Initialize-Disk `
+            -Number $diskNumber `
+            -PartitionStyle GPT `
+            -ErrorAction Stop
 
           $partition = New-Partition `
             -DiskNumber $diskNumber `
             -UseMaximumSize `
-            -DriveLetter F `
-            -ErrorAction Stop
+            -DriveLetter F
 
           Format-Volume `
             -Partition $partition `
             -FileSystem NTFS `
             -NewFileSystemLabel "RDP-512GB" `
-            -Confirm:$false `
-            -ErrorAction Stop
+            -Confirm:$false
 
-          Write-Host "F: created successfully."
+          Write-Host "F: ready."
 
       # ==========================================
       # CREATE 2 TB E:
@@ -208,12 +319,8 @@ jobs:
       - name: Create 2TB E Drive
         shell: powershell
         run: |
-          $vhdPath = "C:\2TB-RDP-Disk.vhdx"
 
-          Write-Host ""
-          Write-Host "=========================================="
-          Write-Host "CREATING 2 TB E: DRIVE"
-          Write-Host "=========================================="
+          $vhdPath = "C:\2TB-RDP-Disk.vhdx"
 
           if (Get-Volume -DriveLetter E -ErrorAction SilentlyContinue) {
               Write-Error "E: is already in use."
@@ -221,13 +328,7 @@ jobs:
           }
 
           if (Test-Path $vhdPath) {
-              Dismount-VHD `
-                -Path $vhdPath `
-                -ErrorAction SilentlyContinue
-
-              Remove-Item `
-                $vhdPath `
-                -Force
+              Remove-Item $vhdPath -Force
           }
 
           New-VHD `
@@ -241,34 +342,27 @@ jobs:
             -Passthru `
             -ErrorAction Stop
 
-          Start-Sleep -Seconds 3
+          Start-Sleep -Seconds 2
 
           $diskNumber = $disk.DiskNumber
 
-          $diskInfo = Get-Disk `
-            -Number $diskNumber
-
-          if ($diskInfo.PartitionStyle -eq "RAW") {
-              Initialize-Disk `
-                -Number $diskNumber `
-                -PartitionStyle GPT `
-                -ErrorAction Stop
-          }
+          Initialize-Disk `
+            -Number $diskNumber `
+            -PartitionStyle GPT `
+            -ErrorAction Stop
 
           $partition = New-Partition `
             -DiskNumber $diskNumber `
             -UseMaximumSize `
-            -DriveLetter E `
-            -ErrorAction Stop
+            -DriveLetter E
 
           Format-Volume `
             -Partition $partition `
             -FileSystem NTFS `
             -NewFileSystemLabel "RDP-2TB" `
-            -Confirm:$false `
-            -ErrorAction Stop
+            -Confirm:$false
 
-          Write-Host "E: created successfully."
+          Write-Host "E: ready."
 
       # ==========================================
       # CREATE 5 TB G:
@@ -276,12 +370,8 @@ jobs:
       - name: Create 5TB G Drive
         shell: powershell
         run: |
-          $vhdPath = "C:\5TB-RDP-Disk.vhdx"
 
-          Write-Host ""
-          Write-Host "=========================================="
-          Write-Host "CREATING 5 TB G: DRIVE"
-          Write-Host "=========================================="
+          $vhdPath = "C:\5TB-RDP-Disk.vhdx"
 
           if (Get-Volume -DriveLetter G -ErrorAction SilentlyContinue) {
               Write-Error "G: is already in use."
@@ -289,13 +379,7 @@ jobs:
           }
 
           if (Test-Path $vhdPath) {
-              Dismount-VHD `
-                -Path $vhdPath `
-                -ErrorAction SilentlyContinue
-
-              Remove-Item `
-                $vhdPath `
-                -Force
+              Remove-Item $vhdPath -Force
           }
 
           New-VHD `
@@ -309,34 +393,27 @@ jobs:
             -Passthru `
             -ErrorAction Stop
 
-          Start-Sleep -Seconds 3
+          Start-Sleep -Seconds 2
 
           $diskNumber = $disk.DiskNumber
 
-          $diskInfo = Get-Disk `
-            -Number $diskNumber
-
-          if ($diskInfo.PartitionStyle -eq "RAW") {
-              Initialize-Disk `
-                -Number $diskNumber `
-                -PartitionStyle GPT `
-                -ErrorAction Stop
-          }
+          Initialize-Disk `
+            -Number $diskNumber `
+            -PartitionStyle GPT `
+            -ErrorAction Stop
 
           $partition = New-Partition `
             -DiskNumber $diskNumber `
             -UseMaximumSize `
-            -DriveLetter G `
-            -ErrorAction Stop
+            -DriveLetter G
 
           Format-Volume `
             -Partition $partition `
             -FileSystem NTFS `
             -NewFileSystemLabel "RDP-5TB" `
-            -Confirm:$false `
-            -ErrorAction Stop
+            -Confirm:$false
 
-          Write-Host "G: created successfully."
+          Write-Host "G: ready."
 
       # ==========================================
       # VERIFY STORAGE
@@ -344,29 +421,24 @@ jobs:
       - name: Verify Storage
         shell: powershell
         run: |
+
           Write-Host ""
           Write-Host "=========================================="
-          Write-Host "STORAGE INFORMATION"
+          Write-Host "STORAGE"
           Write-Host "=========================================="
 
           Get-Volume |
             Where-Object DriveLetter |
             Select-Object `
               DriveLetter,
-              FileSystem,
               FileSystemLabel,
               @{Name="SizeGB";Expression={
-                  [math]::Round($_.Size / 1GB, 2)
+                  [math]::Round($_.Size / 1GB,2)
               }},
               @{Name="FreeGB";Expression={
-                  [math]::Round($_.SizeRemaining / 1GB, 2)
+                  [math]::Round($_.SizeRemaining / 1GB,2)
               }} |
             Format-Table -AutoSize
-
-          Write-Host ""
-          Write-Host "E: = 2 TB virtual maximum"
-          Write-Host "F: = 512 GB virtual maximum"
-          Write-Host "G: = 5 TB virtual maximum"
 
       # ==========================================
       # CREATE RDP USER
@@ -374,32 +446,27 @@ jobs:
       - name: Create RDP User
         shell: powershell
         run: |
+
           $username = "RDP"
           $password = "Scriddo@1"
+
+          $securePass = ConvertTo-SecureString `
+            $password `
+            -AsPlainText `
+            -Force
 
           $existingUser = Get-LocalUser `
             -Name $username `
             -ErrorAction SilentlyContinue
 
           if ($existingUser) {
-              Write-Host "RDP user already exists. Updating password..."
-
-              $securePass = ConvertTo-SecureString `
-                $password `
-                -AsPlainText `
-                -Force
 
               Set-LocalUser `
                 -Name $username `
                 -Password $securePass
+
           }
           else {
-              Write-Host "Creating RDP user..."
-
-              $securePass = ConvertTo-SecureString `
-                $password `
-                -AsPlainText `
-                -Force
 
               New-LocalUser `
                 -Name $username `
@@ -417,20 +484,7 @@ jobs:
             -Member $username `
             -ErrorAction SilentlyContinue
 
-          if (-not (Get-LocalUser -Name $username -ErrorAction SilentlyContinue)) {
-              Write-Error "User creation failed."
-              exit 1
-          }
-
-          echo "RDP_CREDS=User: RDP | Password: Scriddo@1" >> $env:GITHUB_ENV
-
-          Write-Host ""
-          Write-Host "=========================================="
-          Write-Host "RDP USER READY"
-          Write-Host "=========================================="
-          Write-Host "Username: RDP"
-          Write-Host "Password: Scriddo@1"
-          Write-Host "=========================================="
+          Write-Host "RDP user ready."
 
       # ==========================================
       # INSTALL TAILSCALE
@@ -438,6 +492,7 @@ jobs:
       - name: Install Tailscale
         shell: powershell
         run: |
+
           $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
           $installerPath = "$env:TEMP\tailscale.msi"
 
@@ -462,30 +517,31 @@ jobs:
       - name: Establish Tailscale Connection
         shell: powershell
         run: |
+
           & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
             --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} `
             --hostname=gh-runner-$env:GITHUB_RUN_ID
 
           $tsIP = $null
-          $retries = 0
 
-          while (-not $tsIP -and $retries -lt 10) {
+          for ($i = 0; $i -lt 10; $i++) {
 
               $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
 
-              Start-Sleep -Seconds 5
+              if ($tsIP) {
+                  break
+              }
 
-              $retries++
+              Start-Sleep -Seconds 5
           }
 
           if (-not $tsIP) {
-              Write-Error "Tailscale IP not assigned."
+              Write-Error "Tailscale IP was not assigned."
               exit 1
           }
 
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
 
-          Write-Host ""
           Write-Host "Tailscale IP: $tsIP"
 
       # ==========================================
@@ -494,29 +550,29 @@ jobs:
       - name: Verify RDP Accessibility
         shell: powershell
         run: |
-          Write-Host "Testing RDP connection..."
 
-          $testResult = Test-NetConnection `
+          $result = Test-NetConnection `
             -ComputerName $env:TAILSCALE_IP `
             -Port 3389
 
-          if (-not $testResult.TcpTestSucceeded) {
-              Write-Error "RDP connection failed."
+          if (-not $result.TcpTestSucceeded) {
+              Write-Error "RDP port 3389 is unreachable."
               exit 1
           }
 
-          Write-Host "TCP connectivity successful."
+          Write-Host "RDP connectivity successful."
 
       # ==========================================
-      # DISPLAY SYSTEM INFORMATION
+      # FINAL INFORMATION
       # ==========================================
-      - name: Display System Information
+      - name: Display RDP Information
         shell: powershell
         run: |
-          $system = Get-CimInstance Win32_ComputerSystem
+
+          $computer = Get-CimInstance Win32_ComputerSystem
 
           $ramGB = [math]::Round(
-              $system.TotalPhysicalMemory / 1GB,
+              $computer.TotalPhysicalMemory / 1GB,
               2
           )
 
@@ -525,7 +581,7 @@ jobs:
 
           Write-Host ""
           Write-Host "=========================================="
-          Write-Host "              RDP INFORMATION"
+          Write-Host "             RDP READY"
           Write-Host "=========================================="
 
           Write-Host "Address : $env:TAILSCALE_IP"
@@ -541,14 +597,15 @@ jobs:
           Write-Host "=========================================="
 
       # ==========================================
-      # KEEP RDP ALIVE
+      # KEEP RUNNER ALIVE
       # ==========================================
       - name: Maintain Connection
         shell: powershell
         run: |
+
           Write-Host ""
           Write-Host "=========================================="
-          Write-Host "               RDP ACTIVE"
+          Write-Host "              RDP ACTIVE"
           Write-Host "=========================================="
 
           Write-Host "Address : $env:TAILSCALE_IP"
@@ -558,10 +615,13 @@ jobs:
           Write-Host "E: 2 TB virtual"
           Write-Host "F: 512 GB virtual"
           Write-Host "G: 5 TB virtual"
-          Write-Host "=========================================="
           Write-Host ""
+          Write-Host "Performance optimizations enabled."
+          Write-Host "=========================================="
 
           while ($true) {
+
               Write-Host "[$(Get-Date)] RDP Active"
+
               Start-Sleep -Seconds 300
           }
